@@ -530,3 +530,33 @@ def test_default_download_directory_is_current_directory(monkeypatch, download_m
     custom_dir = tmp_path / 'custom'
     download = download_mock2(args=['-dp', '1189934', '-d', str(custom_dir)])
     assert download.download_directory == str(custom_dir)
+
+
+@pytest.mark.parametrize('etag, ok', [
+    ('"99914b932bd37a50b983c5e7c90ae93b"', True),  # MD5 of '{}'
+    ('"00000000000000000000000000000000"', False),
+])
+def test_download_local_checksum(monkeypatch, download_mock2, download_request, etag, ok):
+    download = download_mock2(args=['-dp', '1189934', '--checksum'])
+    assert download.checksum is True
+    download_request.expected_file_size = 2
+    mock_session = MagicMock()
+    mock_response_context = MagicMock()
+    mock_session.return_value.__enter__.return_value.get.return_value = mock_response_context
+    mock_response_context.__enter__.return_value = Response(headers=CaseInsensitiveDict({'ETag': etag}))
+    monkeypatch.setattr('requests.session', mock_session)
+    if ok:
+        download.download_local(download_request)
+        assert os.path.exists(download_request.completed_download_abs_path)
+        assert download_request.e_tag == etag.strip('"')
+    else:
+        with pytest.raises(Exception, match='does not match the ETag'):
+            download.download_local(download_request)
+        # the file is deleted so that the next run downloads it again
+        assert not os.path.exists(download_request.partial_download_abs_path)
+        assert not os.path.exists(download_request.completed_download_abs_path)
+
+
+def test_download_local_checksum_off_by_default(download_mock2):
+    download = download_mock2(args=['-dp', '1189934'])
+    assert download.checksum is False
