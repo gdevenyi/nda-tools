@@ -212,6 +212,7 @@ class Response:
 
 def test_download_local(monkeypatch, download_mock2, download_request):
     download = download_mock2(args=['-dp', '1189934'])
+    download_request.expected_file_size = 2
     mock_session = MagicMock()
     mock_response_context = MagicMock()
     mock_session.return_value.__enter__.return_value.get.return_value = mock_response_context
@@ -227,7 +228,7 @@ def test_download_local(monkeypatch, download_mock2, download_request):
 
     # test that a download continues where it left off when a file is alreay present on disk
     # mock a response that returns the last byte of the file
-    mock_response_context.__enter__.return_value = Response(text='}')
+    mock_response_context.__enter__.return_value = Response(status_code=206, text='}')
     with monkeypatch.context() as m:
         m.setattr('requests.session', mock_session)
         m.setattr(os, 'rename', MagicMock())
@@ -428,6 +429,7 @@ def test_verify(monkeypatch, download_mock2, tmp_path, datadir):
 def test_download_local_updates_progress_bar(monkeypatch, download_mock2, download_request):
     download = download_mock2(args=['-dp', '1189934', '--progress-bar'])
     assert download.show_progress_bar is True
+    download_request.expected_file_size = 2
     download.progress_bar = MagicMock()
     mock_session = MagicMock()
     mock_response_context = MagicMock()
@@ -442,7 +444,7 @@ def test_download_local_updates_progress_bar(monkeypatch, download_mock2, downlo
 
     # resumed download: the bar is updated with the bytes already on disk and then the new bytes
     download.progress_bar.reset_mock()
-    mock_response_context.__enter__.return_value = Response(text='}')
+    mock_response_context.__enter__.return_value = Response(status_code=206, text='}')
     with monkeypatch.context() as m:
         m.setattr('requests.session', mock_session)
         m.setattr(os, 'rename', MagicMock())
@@ -466,3 +468,55 @@ def test_progress_bar_is_off_by_default(download_mock2):
     download = download_mock2(args=['-dp', '1189934'])
     assert download.show_progress_bar is False
     assert download.progress_bar is None
+
+
+@pytest.fixture
+def resume_mocks(monkeypatch, download_mock2, download_request):
+    """download_local with a mocked http session and a real .partial file on disk"""
+    download = download_mock2(args=['-dp', '1189934'])
+    download_request.expected_file_size = 2
+    os.makedirs(os.path.dirname(download_request.partial_download_abs_path), exist_ok=True)
+    mock_session = MagicMock()
+    mock_response_context = MagicMock()
+    mock_session.return_value.__enter__.return_value.get.return_value = mock_response_context
+    monkeypatch.setattr('requests.session', mock_session)
+
+    def _run(partial_content, response=None):
+        with open(download_request.partial_download_abs_path, 'wb') as f:
+            f.write(partial_content)
+        mock_response_context.__enter__.return_value = response
+        download.download_local(download_request)
+        with open(download_request.completed_download_abs_path, 'rb') as f:
+            return f.read()
+
+    return _run, mock_session
+
+
+def test_download_local_complete_partial_file_is_renamed(resume_mocks):
+    run, mock_session = resume_mocks
+    assert run(b'{}') == b'{}'
+    # no request is sent, because a range request for 0 bytes fails with HTTP 416
+    assert not mock_session.return_value.__enter__.return_value.get.called
+
+
+def test_download_local_restarts_when_partial_file_is_too_large(resume_mocks):
+    run, mock_session = resume_mocks
+    assert run(b'{}{}', Response(status_code=200, text='{}')) == b'{}'
+    assert not mock_session.return_value.__enter__.return_value.headers.update.called
+
+
+def test_download_local_restarts_when_range_is_ignored(resume_mocks):
+    run, mock_session = resume_mocks
+    # the server sends the whole file (200) instead of the remaining bytes (206)
+    assert run(b'{', Response(status_code=200, text='{}')) == b'{}'
+    mock_session.return_value.__enter__.return_value.headers.update.assert_called_once_with({'Range': 'bytes=1-'})
+
+
+def test_download_local_fails_on_wrong_size(resume_mocks, download_request):
+    run, _ = resume_mocks
+    download_request.expected_file_size = 5
+    with pytest.raises(Exception, match='but 5 bytes were expected'):
+        run(b'{', Response(status_code=206, text='}'))
+    # the partial file is kept so that the next run can resume it
+    assert os.path.getsize(download_request.partial_download_abs_path) == 2
+    assert not os.path.exists(download_request.completed_download_abs_path)
