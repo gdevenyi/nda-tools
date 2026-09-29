@@ -251,7 +251,7 @@ class ValidationV2Api:
             if 'complete' in status:
                 break
             elif 'error' in status:
-                exit_error()
+                exit_error(f'QA request {qa_uuid} failed with status {qa.status}')
             else:
                 time.sleep(poll_interval_sec)  # Wait before checking again
                 poll_interval_sec = min(poll_interval_sec * 1.5, 10)
@@ -272,7 +272,7 @@ class ValidationV2Api:
             elif 'pending' in status and not wait_manifest_upload:
                 break
             elif 'error' in status:
-                exit_error()
+                break
             else:
                 time.sleep(poll_interval_sec)  # Wait before checking again
                 poll_interval_sec = min(poll_interval_sec * 1.5, 10)
