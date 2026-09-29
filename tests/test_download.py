@@ -473,7 +473,7 @@ def test_progress_bar_is_off_by_default(download_mock2):
 @pytest.fixture
 def resume_mocks(monkeypatch, download_mock2, download_request):
     """download_local with a mocked http session and a real .partial file on disk"""
-    download = download_mock2(args=['-dp', '1189934'])
+    download = download_mock2(args=['-dp', '1189934', '--no-checksum'])
     download_request.expected_file_size = 2
     os.makedirs(os.path.dirname(download_request.partial_download_abs_path), exist_ok=True)
     mock_session = MagicMock()
@@ -557,6 +557,8 @@ def test_download_local_checksum(monkeypatch, download_mock2, download_request, 
         assert not os.path.exists(download_request.completed_download_abs_path)
 
 
-def test_download_local_checksum_off_by_default(download_mock2):
+def test_download_local_checksum_on_by_default(download_mock2):
     download = download_mock2(args=['-dp', '1189934'])
+    assert download.checksum is True
+    download = download_mock2(args=['-dp', '1189934', '--no-checksum'])
     assert download.checksum is False

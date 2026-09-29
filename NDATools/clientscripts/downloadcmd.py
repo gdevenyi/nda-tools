@@ -75,8 +75,9 @@ Examples -
                         help='''Show a progress bar with the bytes and files downloaded, the transfer rate and the estimated time remaining.
 When this option is provided, the periodic 'Download Progress Report' messages are not printed.''')
 
-    parser.add_argument('--checksum', action='store_true',
-                        help='''After each file is downloaded, compare the MD5 checksum of the file with the ETag of the S3 object.
+    parser.add_argument('--checksum', action=argparse.BooleanOptionalAction, default=True,
+                        help='''On by default. Use --no-checksum to turn it off.
+After each file is downloaded, compare the MD5 checksum of the file with the ETag of the S3 object.
 If the checksum does not match, the file is deleted and counted as a failed download, so the next run downloads it again.
 For files that were uploaded in several parts, the part size is not known and common part sizes are tried. If none of them match,
 a warning is shown and the file is kept. The check reads each downloaded file one more time. It does not apply to -s3 transfers.''')
